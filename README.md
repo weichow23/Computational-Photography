@@ -11,11 +11,11 @@
 
 ## Lab
 
-| summary               |              result              |
-| --------------------- | :------------------------------: |
-| OpenCV initialization | ![](lab1-opencv/opencv-logo.png) |
-| Image filtering       |                                  |
-|                       |                                  |
+| summary                                    |              result              |
+| ------------------------------------------ | :------------------------------: |
+| OpenCV initialization                      | ![](lab1_opencv/opencv-logo.png) |
+| Image filtering and Fourier transformation |     ![](lab2_fliter/001.png)     |
+|                                            |                                  |
 
 
 
