@@ -16,7 +16,7 @@
 | OpenCV initialization                        |     ![](lab1_opencv/opencv-logo.png)     |
 | Image filtering and Fourier transformation   |         ![](lab2_fliter/001.png)         |
 | Sparse matrices and Gaussian-Sider iteration | ![](lab3_sparse matrix/sparsematrix.png) |
-| Nonlinear least squares                      |                                          |
+| Nonlinear least squares                      |     ![](lab5-Gauss-Newton/plot.gif)      |
 
 
 
