@@ -4,25 +4,39 @@ from PIL import Image
 from PIL import ImageTk as itk
 import numpy as np
 import itertools
-import maxflow
 import seaborn as sns
-from poisson import poisson_edit
+import yaml
+from termcolor import cprint
 
+from utlis import center_crop
+from poisson import poisson_edit
+from mantage import abswap
+
+
+with open('config.yaml', 'r') as f:
+    config = yaml.safe_load(f)
+
+SOURCE_IMG_DIR = config['source_img_dir']
+OUTPUT_IMG_DIR = config['output_img_dir']
+CANVAS_BORDER_WIDTH = config['canvas_border_width']
+BRUSH_WIDTH = config['brush_width']
+FIXED_WIDTH = 400
+FIXED_HEIGHT = 300
 
 root = tk.Tk()
 root.title('Interactive Digital Photomontage')
 
-SOURCE_IMG_DIR = 'source_imgs'
-OUTPUT_IMG_DIR = 'output_imgs'
 if not os.path.exists(OUTPUT_IMG_DIR):
     os.mkdir(OUTPUT_IMG_DIR)
 def filter_img_path(paths):
     return [x for x in paths if x.split('.')[-1] in ['jpg', 'jpeg']]
+
 SOURCE_IMG_PATHS = filter_img_path(os.listdir(SOURCE_IMG_DIR))
 SOURCE_IMG_PATHS = [os.path.join(SOURCE_IMG_DIR, x) for x in SOURCE_IMG_PATHS]
-SOURCE_PIL_IMGS = [Image.open(x).convert('RGB') for x in SOURCE_IMG_PATHS]
-SOURCE_IMG_WIDTH, SOURCE_IMG_HEIGHT = SOURCE_PIL_IMGS[0].size
-SOURCE_PHOTOIMAGES = [itk.PhotoImage(file=x) for x in SOURCE_IMG_PATHS]
+# crop and resize
+SOURCE_PIL_IMGS = [center_crop(Image.open(x).convert('RGB'), FIXED_WIDTH, FIXED_HEIGHT) for x in SOURCE_IMG_PATHS]
+SOURCE_PHOTOIMAGES = [itk.PhotoImage(image=img) for img in SOURCE_PIL_IMGS]
+
 CURRENT_SOURCE_IDX = 0
 COMPOSITE_PATH = os.path.join(OUTPUT_IMG_DIR, 'output.jpg')
 COMPOSITE_ARRAY = np.array(SOURCE_PIL_IMGS[0])
@@ -30,9 +44,6 @@ Image.fromarray(COMPOSITE_ARRAY).save(COMPOSITE_PATH)
 COMPOSITE_PHOTOIMAGE = itk.PhotoImage(file=COMPOSITE_PATH)
 LABEL_MAP_PATH = os.path.join(OUTPUT_IMG_DIR, 'label_map.jpg')
 
-CANVAS_WIDTH, CANVAS_HEIGHT = SOURCE_IMG_WIDTH, SOURCE_IMG_HEIGHT
-CANVAS_BORDER_WIDTH = 5
-BRUSH_WIDTH = 2
 hex2rgb = lambda x: tuple(int(x[i:i+2], 16) for i in (1, 3, 5))
 rgb2hex = lambda x: '#%02x%02x%02x' % tuple(x)
 palette = sns.color_palette()
@@ -60,40 +71,44 @@ def canvas_draw(event):
 frame = tk.Frame(root)
 frame.pack(padx=5, pady=5, fill=tk.BOTH)
 def create_canvas(root):
-    canvas = tk.Canvas(root, width=CANVAS_WIDTH, height=CANVAS_HEIGHT)
-    canvas.config(highlightbackground="white")
+    canvas = tk.Canvas(root, width=FIXED_WIDTH, height=FIXED_HEIGHT)
+    canvas.config(highlightbackground=config['highlight_background'])
     canvas.config(highlightthickness=CANVAS_BORDER_WIDTH)
-    canvas.config(background='gray')
+    canvas.config(background=config['background_color'])
+
     canvas.pack(padx=5, pady=5, side=tk.LEFT)
     canvas.bind('<B1-Motion>', canvas_draw)
     # set the mask to be an attribute for canvas
-    canvas.mask = np.zeros((CANVAS_HEIGHT, CANVAS_WIDTH), dtype=bool)
+    canvas.mask = np.zeros((FIXED_HEIGHT, FIXED_WIDTH), dtype=bool)
     # set the stroke color to be an attribute for canvas
     canvas.stroke_color = 'black'
     return canvas
 composite_canvas = create_canvas(frame)
 source_canvas = create_canvas(frame)
 
-
 # create label map canvas
-canvas = tk.Canvas(frame, width=CANVAS_WIDTH, height=CANVAS_HEIGHT)
-canvas.config(highlightbackground="white")
+canvas = tk.Canvas(frame, width=FIXED_WIDTH, height=FIXED_HEIGHT)
+canvas.config(highlightbackground=config['highlight_background'])
 canvas.config(highlightthickness=CANVAS_BORDER_WIDTH)
-canvas.config(background='gray')
+canvas.config(background=config['background_color'])
 canvas.pack(padx=5, pady=5, side=tk.LEFT)
 # set the label_map to be an attribute for canvas
-canvas.label_map = np.zeros((CANVAS_HEIGHT, CANVAS_WIDTH), dtype=np.int64)
+canvas.label_map = np.zeros((FIXED_HEIGHT, FIXED_WIDTH), dtype=np.int64)
 canvas.label_map_img = None
 label_map_canvas = canvas
 
-# function to update label map
 def update_label_map(label_map, mask, idx):
+    '''
+    update label map
+    '''
     mask = mask.astype(bool)
     label_map[mask] = idx
 
-# function to show label map on canvas
 def show_label_map(canvas):
-    label_map = np.zeros(shape=[SOURCE_IMG_HEIGHT, SOURCE_IMG_WIDTH, 3], dtype=np.uint8)
+    '''
+    show label map on canvas
+    '''
+    label_map = np.zeros(shape=[FIXED_HEIGHT, FIXED_WIDTH, 3], dtype=np.uint8)
     for i in range(len(COLORS)):
         color_array = np.array(list(hex2rgb(COLORS[i])))
         for k in range(3):
@@ -109,48 +124,10 @@ all_true_mask = np.ones_like(label_map_canvas.label_map, dtype=bool)
 update_label_map(label_map_canvas.label_map, all_true_mask, 0)
 show_label_map(label_map_canvas)
 
-
-# alpha-beta swap maxflow for the current composite and source
-def abswap(composite, source, composite_mask, source_mask, seam_objective='c'):
-    h, w, _ = composite.shape
-    graph = maxflow.Graph[int](h*w, 2*((h-1)*w+(w-1)*h))
-    nodeids = graph.add_grid_nodes((h, w))
-    color_diff_x = composite[:, :-1] - source[:, 1:]
-    color_diff_x = np.sum(np.abs(color_diff_x), -1)
-    color_diff_y = composite[:-1, :] - source[1:, :]
-    color_diff_y = np.sum(np.abs(color_diff_y), -1)
-
-    # add edges for horizontally adjacent pixels (n-links)
-    structure = np.array([[0, 0, 0],
-                          [0, 0, 1],
-                          [0, 0, 0]])
-    graph.add_grid_edges(nodeids[:, :-1], color_diff_x, structure, symmetric=True)
-
-    # add edges for vertically adjacent pixels (n-links)
-    structure = np.array([[0, 0, 0],
-                          [0, 0, 0],
-                          [0, 1, 0]])
-    graph.add_grid_edges(nodeids[:-1, :], color_diff_y, structure, symmetric=True)
-
-    # add terminal edges (t-links)
-    # note that the alpha and beta weights are reversed
-    # since a pixel has the label of the segment it is not in
-    # alpha is 0 (label for composite)
-    alpha_weight = source_mask.astype(np.int64) * 100000000
-    # beta is 1 (label for source)
-    beta_weight = composite_mask.astype(np.int64) * 100000000
-    graph.add_grid_tedges(nodeids, alpha_weight, beta_weight)
-
-    # since there are only two labels, 1 iteration is enough
-    graph.maxflow()
-    sgm = graph.get_grid_segments(nodeids)
-    label_map = np.logical_not(sgm).astype(np.uint8)
-
-    return label_map
-
-
-# functions for reseting canvas
 def canvas_show_image(canvas, photoimage):
+    '''
+    reseting canvas
+    '''
     canvas.create_image(CANVAS_BORDER_WIDTH, CANVAS_BORDER_WIDTH, image=photoimage, anchor=tk.NW)
 
 def reset_source():
@@ -169,7 +146,6 @@ def reset_composite():
 # show initial images on canvas
 reset_source()
 reset_composite()
-
 
 # create button
 frame = tk.Frame(root)
@@ -216,6 +192,5 @@ reset_source_button = tk.Button(frame, text="Reset Source", command=reset_source
 reset_source_button.pack(padx=10, pady=0, side=tk.LEFT)
 reset_composite_button = tk.Button(frame, text="Reset Composite", command=reset_composite)
 reset_composite_button.pack(padx=10, pady=0, side=tk.LEFT)
-
 
 root.mainloop()

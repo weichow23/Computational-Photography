@@ -1,0 +1,6 @@
+source_img_dir: 'source_imgs'
+output_img_dir: 'output_imgs'
+canvas_border_width: 5
+brush_width: 2
+highlight_background: 'white'
+background_color: 'gray'
