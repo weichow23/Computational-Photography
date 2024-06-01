@@ -1,6 +1,6 @@
 import numpy as np
 import maxflow
-
+from termcolor import cprint
 def abswap(composite, source, composite_mask, source_mask):
     '''
     alpha-beta swap maxflow for the current composite and source
@@ -32,6 +32,7 @@ def abswap(composite, source, composite_mask, source_mask):
     alpha_weight = source_mask.astype(np.int64) * 100000000
     # beta is 1 (label for source)
     beta_weight = composite_mask.astype(np.int64) * 100000000
+
     graph.add_grid_tedges(nodeids, alpha_weight, beta_weight)
 
     # since there are only two labels, 1 iteration is enough

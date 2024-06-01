@@ -1,3 +1,4 @@
+
 import tkinter as tk
 import os
 from PIL import Image
@@ -8,7 +9,7 @@ import seaborn as sns
 import yaml
 from termcolor import cprint
 
-from utlis import center_crop
+from utils import center_crop, filter_img_path
 from poisson import poisson_edit
 from mantage import abswap
 
@@ -28,8 +29,6 @@ root.title('Interactive Digital Photomontage')
 
 if not os.path.exists(OUTPUT_IMG_DIR):
     os.mkdir(OUTPUT_IMG_DIR)
-def filter_img_path(paths):
-    return [x for x in paths if x.split('.')[-1] in ['jpg', 'jpeg']]
 
 SOURCE_IMG_PATHS = filter_img_path(os.listdir(SOURCE_IMG_DIR))
 SOURCE_IMG_PATHS = [os.path.join(SOURCE_IMG_DIR, x) for x in SOURCE_IMG_PATHS]
@@ -159,7 +158,6 @@ def create_composite(binary_map, source_idx):
     target = COMPOSITE_ARRAY
     mask = binary_map.astype(np.uint8) * 255
     COMPOSITE_ARRAY = poisson_edit(source, target, mask, (0, 0))
-    # COMPOSITE_ARRAY[binary_map] = np.array(SOURCE_PIL_IMGS[source_idx])[binary_map]
     Image.fromarray(COMPOSITE_ARRAY).save(COMPOSITE_PATH)
     COMPOSITE_PHOTOIMAGE = itk.PhotoImage(file=COMPOSITE_PATH)
 
