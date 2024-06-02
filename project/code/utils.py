@@ -7,4 +7,4 @@ def center_crop(image, target_width, target_height):
     return image.crop((left, top, right, bottom))
 
 def filter_img_path(paths):
-    return [x for x in paths if x.split('.')[-1] in ['jpg', 'jpeg']]
+    return [x for x in paths if x.split('.')[-1] in ['jpg', 'jpeg', '.png']]

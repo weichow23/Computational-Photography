@@ -1,18 +1,13 @@
-
-import tkinter as tk
+# todo: 接下去只需要改这个文件，把UI和功能啥的完善一下
+import gradio as gr
 import os
 from PIL import Image
-from PIL import ImageTk as itk
 import numpy as np
-import itertools
 import seaborn as sns
 import yaml
-from termcolor import cprint
-
+import itertools
 from utils import center_crop, filter_img_path
-from poisson import poisson_edit
-from mantage import abswap
-
+from montage import alpha_beta_swap, create_composite
 
 with open('config.yaml', 'r') as f:
     config = yaml.safe_load(f)
@@ -24,171 +19,133 @@ BRUSH_WIDTH = config['brush_width']
 FIXED_WIDTH = 400
 FIXED_HEIGHT = 300
 
-root = tk.Tk()
-root.title('Interactive Digital Photomontage')
-
 if not os.path.exists(OUTPUT_IMG_DIR):
     os.mkdir(OUTPUT_IMG_DIR)
 
 SOURCE_IMG_PATHS = filter_img_path(os.listdir(SOURCE_IMG_DIR))
 SOURCE_IMG_PATHS = [os.path.join(SOURCE_IMG_DIR, x) for x in SOURCE_IMG_PATHS]
-# crop and resize
 SOURCE_PIL_IMGS = [center_crop(Image.open(x).convert('RGB'), FIXED_WIDTH, FIXED_HEIGHT) for x in SOURCE_IMG_PATHS]
-SOURCE_PHOTOIMAGES = [itk.PhotoImage(image=img) for img in SOURCE_PIL_IMGS]
-
 CURRENT_SOURCE_IDX = 0
-COMPOSITE_PATH = os.path.join(OUTPUT_IMG_DIR, 'output.jpg')
 COMPOSITE_ARRAY = np.array(SOURCE_PIL_IMGS[0])
-Image.fromarray(COMPOSITE_ARRAY).save(COMPOSITE_PATH)
-COMPOSITE_PHOTOIMAGE = itk.PhotoImage(file=COMPOSITE_PATH)
 LABEL_MAP_PATH = os.path.join(OUTPUT_IMG_DIR, 'label_map.jpg')
 
-hex2rgb = lambda x: tuple(int(x[i:i+2], 16) for i in (1, 3, 5))
+hex2rgb = lambda x: tuple(int(x[i:i + 2], 16) for i in (1, 3, 5))
 rgb2hex = lambda x: '#%02x%02x%02x' % tuple(x)
 palette = sns.color_palette()
 for i in range(len(palette)):
-    color = [int(x*255) for x in palette[i]]
+    color = [int(x * 255) for x in palette[i]]
     palette[i] = rgb2hex(color)
 palette = itertools.cycle(palette)
-COLORS = [next(palette) for i in range(len(SOURCE_PHOTOIMAGES))]
+COLORS = [next(palette) for i in range(len(SOURCE_PIL_IMGS))]
 
+label_map = np.zeros((FIXED_HEIGHT, FIXED_WIDTH), dtype=np.int64)
 
-# create composite and source canvas
-def canvas_draw(event):
-    x, y = event.x, event.y
-    w = event.widget
-    r = BRUSH_WIDTH
-    width, height = w.winfo_width(), w.winfo_height()
-    x_min = max(x-r, 0)
-    y_min = max(y-r, 0)
-    x_max = min(x+r, width-1)
-    y_max = min(y+r, height-1)
-    color = w.stroke_color
-    w.create_rectangle(x_min, y_min, x_max, y_max, fill=color, outline=color)
-    w.mask[y_min:y_max+1, x_min:x_max+1] = 1
-
-frame = tk.Frame(root)
-frame.pack(padx=5, pady=5, fill=tk.BOTH)
-def create_canvas(root):
-    canvas = tk.Canvas(root, width=FIXED_WIDTH, height=FIXED_HEIGHT)
-    canvas.config(highlightbackground=config['highlight_background'])
-    canvas.config(highlightthickness=CANVAS_BORDER_WIDTH)
-    canvas.config(background=config['background_color'])
-
-    canvas.pack(padx=5, pady=5, side=tk.LEFT)
-    canvas.bind('<B1-Motion>', canvas_draw)
-    # set the mask to be an attribute for canvas
-    canvas.mask = np.zeros((FIXED_HEIGHT, FIXED_WIDTH), dtype=bool)
-    # set the stroke color to be an attribute for canvas
-    canvas.stroke_color = 'black'
-    return canvas
-composite_canvas = create_canvas(frame)
-source_canvas = create_canvas(frame)
-
-# create label map canvas
-canvas = tk.Canvas(frame, width=FIXED_WIDTH, height=FIXED_HEIGHT)
-canvas.config(highlightbackground=config['highlight_background'])
-canvas.config(highlightthickness=CANVAS_BORDER_WIDTH)
-canvas.config(background=config['background_color'])
-canvas.pack(padx=5, pady=5, side=tk.LEFT)
-# set the label_map to be an attribute for canvas
-canvas.label_map = np.zeros((FIXED_HEIGHT, FIXED_WIDTH), dtype=np.int64)
-canvas.label_map_img = None
-label_map_canvas = canvas
 
 def update_label_map(label_map, mask, idx):
-    '''
-    update label map
-    '''
     mask = mask.astype(bool)
     label_map[mask] = idx
 
-def show_label_map(canvas):
-    '''
-    show label map on canvas
-    '''
-    label_map = np.zeros(shape=[FIXED_HEIGHT, FIXED_WIDTH, 3], dtype=np.uint8)
+def show_label_map(label_map):
+    label_map_image = np.zeros(shape=[FIXED_HEIGHT, FIXED_WIDTH, 3], dtype=np.uint8)
     for i in range(len(COLORS)):
         color_array = np.array(list(hex2rgb(COLORS[i])))
         for k in range(3):
-            m = label_map[:, :, k]
-            m[canvas.label_map==i] = color_array[k]
-            label_map[:, :, k] = m
-    Image.fromarray(label_map).save(LABEL_MAP_PATH)
-    canvas.label_map_img = itk.PhotoImage(file=LABEL_MAP_PATH)
-    canvas.create_image(CANVAS_BORDER_WIDTH, CANVAS_BORDER_WIDTH, image=canvas.label_map_img, anchor=tk.NW)
+            m = label_map_image[:, :, k]
+            m[label_map == i] = color_array[k]
+            label_map_image[:, :, k] = m
+    return Image.fromarray(label_map_image)
 
-# show initial label map
-all_true_mask = np.ones_like(label_map_canvas.label_map, dtype=bool)
-update_label_map(label_map_canvas.label_map, all_true_mask, 0)
-show_label_map(label_map_canvas)
+all_true_mask = np.ones_like(label_map, dtype=bool)
+update_label_map(label_map, all_true_mask, 0)
+label_map_image = show_label_map(label_map)
 
-def canvas_show_image(canvas, photoimage):
-    '''
-    reseting canvas
-    '''
-    canvas.create_image(CANVAS_BORDER_WIDTH, CANVAS_BORDER_WIDTH, image=photoimage, anchor=tk.NW)
+def process_mask(mask_dict):
+    mask = np.zeros((FIXED_HEIGHT, FIXED_WIDTH), dtype=bool)
+    if 'mask' in mask_dict and mask_dict['mask'] is not None:
+        print('process mask')
+        mask = np.array(mask_dict['mask']).astype(bool)
+        mask_dict['mask'] = None # 清除笔刷 todo: 似乎没用
+    return mask
+
+
+def run(composite_input, source_input):
+    global CURRENT_SOURCE_IDX
+    composite_mask = process_mask(composite_input)
+    source_mask = process_mask(source_input)
+
+    # 将RGB图像转换为灰度图像
+    composite_mask = composite_mask[:, :, 0]  # 保留第一个通道
+    source_mask = source_mask[:, :, 0]  # 保留第一个通道
+
+    binary_map = alpha_beta_swap(COMPOSITE_ARRAY, np.array(SOURCE_PIL_IMGS[CURRENT_SOURCE_IDX]), composite_mask, source_mask)
+    update_label_map(label_map, binary_map, CURRENT_SOURCE_IDX)
+    label_map_image = show_label_map(label_map)
+    composite_image = create_composite(binary_map=binary_map, source=np.array(SOURCE_PIL_IMGS[CURRENT_SOURCE_IDX]),
+                                       target=COMPOSITE_ARRAY)
+
+    return composite_image, label_map_image, SOURCE_PIL_IMGS[CURRENT_SOURCE_IDX]
+
+
+def next_image():
+    global CURRENT_SOURCE_IDX
+    CURRENT_SOURCE_IDX = (CURRENT_SOURCE_IDX + 1) % len(SOURCE_PIL_IMGS)
+    # source_canvas.brush_color = '#FFFFFF' # 没用，改不了
+    # source_canvas.change()
+    return SOURCE_PIL_IMGS[CURRENT_SOURCE_IDX]
+
 
 def reset_source():
-    canvas = source_canvas
-    img_idx = CURRENT_SOURCE_IDX
-    canvas_show_image(canvas, SOURCE_PHOTOIMAGES[img_idx])
-    canvas.config(highlightbackground=COLORS[img_idx])
-    canvas.stroke_color = COLORS[img_idx]
-    source_canvas.mask[:, :] = 0
+    return SOURCE_PIL_IMGS[CURRENT_SOURCE_IDX]
+
 
 def reset_composite():
-    canvas = composite_canvas
-    canvas_show_image(canvas, COMPOSITE_PHOTOIMAGE)
-    composite_canvas.mask[:, :] = 0
+    global COMPOSITE_ARRAY
+    COMPOSITE_ARRAY = np.array(SOURCE_PIL_IMGS[0])
+    return Image.fromarray(COMPOSITE_ARRAY)
 
-# show initial images on canvas
-reset_source()
-reset_composite()
 
-# create button
-frame = tk.Frame(root)
-frame.pack(padx=10, pady=10, fill=tk.BOTH)
+with gr.Blocks(css=".block {padding: 10px;} .gr-button {margin: 5px;}") as demo:
+    with gr.Group():
+        gr.Markdown("## 两张图片蒙太奇", elem_classes=["block"], elem_id="header1")
+        with gr.Row(elem_classes=["block"]):
+            composite_canvas = gr.Image(label="Composite Image", tool="sketch", height=FIXED_HEIGHT, width=FIXED_WIDTH,
+                                        container=True)
+            source_canvas = gr.Image(label="Source Image", tool="sketch", height=FIXED_HEIGHT, width=FIXED_WIDTH,
+                                     container=True)
+            label_map_canvas = gr.Image(label="Label Map", height=FIXED_HEIGHT, width=FIXED_WIDTH, container=True)
 
-# function for creating composite image
-def create_composite(binary_map, source_idx):
-    binary_map = binary_map.astype(bool)
-    global COMPOSITE_ARRAY, COMPOSITE_PATH, COMPOSITE_PHOTOIMAGE
-    source = np.array(SOURCE_PIL_IMGS[source_idx])
-    target = COMPOSITE_ARRAY
-    mask = binary_map.astype(np.uint8) * 255
-    COMPOSITE_ARRAY = poisson_edit(source, target, mask, (0, 0))
-    Image.fromarray(COMPOSITE_ARRAY).save(COMPOSITE_PATH)
-    COMPOSITE_PHOTOIMAGE = itk.PhotoImage(file=COMPOSITE_PATH)
+        with gr.Row(elem_classes=["block"]):
+            run_button = gr.Button("Run", elem_classes=["gr-button"])
+            next_button = gr.Button("Next image", elem_classes=["gr-button"])
+            reset_source_button = gr.Button("Reset Source", elem_classes=["gr-button"])
+            reset_composite_button = gr.Button("Reset Composite", elem_classes=["gr-button"])
 
-# callback for run button
-def run_callback():
-    composite = COMPOSITE_ARRAY
-    source = np.array(SOURCE_PIL_IMGS[CURRENT_SOURCE_IDX])
-    binary_map = abswap(composite, source, composite_canvas.mask, source_canvas.mask)
-    # update and show label map
-    update_label_map(label_map_canvas.label_map, binary_map, CURRENT_SOURCE_IDX)
-    show_label_map(label_map_canvas)
-    # create and show composite image
-    create_composite(binary_map, CURRENT_SOURCE_IDX)
-    reset_composite()
-    reset_source()
+        run_button.click(run, inputs=[composite_canvas, source_canvas],
+                         outputs=[composite_canvas, label_map_canvas, source_canvas])
+        next_button.click(next_image, outputs=source_canvas)
+        reset_source_button.click(reset_source, outputs=source_canvas)
+        reset_composite_button.click(reset_composite, outputs=composite_canvas)
 
-# callback for next button
-def next_callback():
-    global CURRENT_SOURCE_IDX
-    next_idx = (CURRENT_SOURCE_IDX + 1) % len(SOURCE_PHOTOIMAGES)
-    CURRENT_SOURCE_IDX = next_idx
-    reset_source()
+    gr.Markdown("---", elem_classes=["block"])  # 添加分隔线
 
-# add widget
-run_button = tk.Button(frame, text="Run", command=run_callback)
-run_button.pack(padx=10, pady=0, side=tk.LEFT)
-next_button = tk.Button(frame, text="Next image", command=next_callback)
-next_button.pack(padx=10, pady=0, side=tk.LEFT)
-reset_source_button = tk.Button(frame, text="Reset Source", command=reset_source)
-reset_source_button.pack(padx=10, pady=0, side=tk.LEFT)
-reset_composite_button = tk.Button(frame, text="Reset Composite", command=reset_composite)
-reset_composite_button.pack(padx=10, pady=0, side=tk.LEFT)
+    with gr.Group():
+        gr.Markdown("## 多张图片(施工)", elem_classes=["block"], elem_id="header2")
+        with gr.Row(elem_classes=["block"]):
+            composite_canvas = gr.Image(label="Composite Image", tool="sketch", height=FIXED_HEIGHT, width=FIXED_WIDTH,
+                                        container=True)
+            source_canvas = gr.Image(label="Source Image", tool="sketch", height=FIXED_HEIGHT, width=FIXED_WIDTH,
+                                     container=True)
+            label_map_canvas = gr.Image(label="Label Map", height=FIXED_HEIGHT, width=FIXED_WIDTH, container=True)
 
-root.mainloop()
+        with gr.Row(elem_classes=["block"]):
+            run_button = gr.Button("Run", elem_classes=["gr-button"])
+            next_button = gr.Button("Next image", elem_classes=["gr-button"])
+            reset_source_button = gr.Button("Reset Source", elem_classes=["gr-button"])
+            reset_composite_button = gr.Button("Reset Composite", elem_classes=["gr-button"])
+
+        run_button.click(run, inputs=[composite_canvas, source_canvas],
+                         outputs=[composite_canvas, label_map_canvas, source_canvas])
+        next_button.click(next_image, outputs=source_canvas)
+        reset_source_button.click(reset_source, outputs=source_canvas)
+        reset_composite_button.click(reset_composite, outputs=composite_canvas)
+demo.launch()
