@@ -1,4 +1,3 @@
-# todo: 接下去只需要改这个文件，把UI和功能啥的完善一下
 import gradio as gr
 import os
 from PIL import Image
@@ -8,6 +7,7 @@ import yaml
 import itertools
 from utils import center_crop, filter_img_path
 from montage import alpha_beta_swap, create_composite
+from termcolor import cprint
 
 with open('config.yaml', 'r') as f:
     config = yaml.safe_load(f)
@@ -40,10 +40,9 @@ COLORS = [next(palette) for i in range(len(SOURCE_PIL_IMGS))]
 
 label_map = np.zeros((FIXED_HEIGHT, FIXED_WIDTH), dtype=np.int64)
 
-
 def update_label_map(label_map, mask, idx):
     mask = mask.astype(bool)
-    label_map[mask] = idx
+    label_map[mask] = idx  # 这样可以区分多张图片的来源. 初始值为全0
 
 def show_label_map(label_map):
     label_map_image = np.zeros(shape=[FIXED_HEIGHT, FIXED_WIDTH, 3], dtype=np.uint8)
@@ -64,9 +63,14 @@ def process_mask(mask_dict):
     if 'mask' in mask_dict and mask_dict['mask'] is not None:
         print('process mask')
         mask = np.array(mask_dict['mask']).astype(bool)
-        mask_dict['mask'] = None # 清除笔刷 todo: 似乎没用
+        mask_dict['mask'] = None # 清除笔刷 没用，该属性清空了，但是图的显示没变
     return mask
 
+def clean_all_canvas():
+    return None, None, None, None
+
+def use_default():
+    return SOURCE_PIL_IMGS[0], SOURCE_PIL_IMGS[1], None, None
 
 def run(composite_input, source_input):
     global CURRENT_SOURCE_IDX
@@ -85,6 +89,25 @@ def run(composite_input, source_input):
 
     return composite_image, label_map_image, SOURCE_PIL_IMGS[CURRENT_SOURCE_IDX]
 
+def run_single(source_input_0, source_input_1):
+    global CURRENT_SOURCE_IDX
+    composite_mask = process_mask(source_input_0)
+    source_mask = process_mask(source_input_1)
+    # print(COMPOSITE_ARRAY) # source_input_0['image']
+    # print(SOURCE_PIL_IMGS[CURRENT_SOURCE_IDX]) source_input_1['image']
+
+    # 将RGB图像转换为灰度图像
+    composite_mask = composite_mask[:, :, 0]  # 保留第一个通道
+    source_mask = source_mask[:, :, 0]  # 保留第一个通道
+
+    binary_map = alpha_beta_swap(source_input_0['image'], np.array(source_input_1['image']), composite_mask, source_mask)
+    label_map = np.zeros((FIXED_HEIGHT, FIXED_WIDTH), dtype=np.int64) # todo: 后面要把这个删了，隔离开来
+    update_label_map(label_map, binary_map, 1)
+    label_map_image = show_label_map(label_map)
+    composite_image = create_composite(binary_map=binary_map, source=np.array(source_input_1['image']),
+                                       target=source_input_0['image'])
+    label_map = np.zeros((FIXED_HEIGHT, FIXED_WIDTH), dtype=np.int64) # todo: 后面要把这个删了，隔离开来
+    return composite_image, label_map_image
 
 def next_image():
     global CURRENT_SOURCE_IDX
@@ -108,44 +131,46 @@ with gr.Blocks(css=".block {padding: 10px;} .gr-button {margin: 5px;}") as demo:
     with gr.Group():
         gr.Markdown("## 两张图片蒙太奇", elem_classes=["block"], elem_id="header1")
         with gr.Row(elem_classes=["block"]):
-            composite_canvas = gr.Image(label="Composite Image", tool="sketch", height=FIXED_HEIGHT, width=FIXED_WIDTH,
-                                        container=True)
-            source_canvas = gr.Image(label="Source Image", tool="sketch", height=FIXED_HEIGHT, width=FIXED_WIDTH,
-                                     container=True)
+            source_canvas_0 = gr.Image(label="Source Image 1", tool="sketch", height=FIXED_HEIGHT, width=FIXED_WIDTH,
+                                     container=True, brush_color=COLORS[0], value=SOURCE_PIL_IMGS[0])
+            source_canvas_1 = gr.Image(label="Source Image 2", tool="sketch", height=FIXED_HEIGHT, width=FIXED_WIDTH,
+                                     container=True, brush_color=COLORS[1], value=SOURCE_PIL_IMGS[1])
             label_map_canvas = gr.Image(label="Label Map", height=FIXED_HEIGHT, width=FIXED_WIDTH, container=True)
+            composite_canvas = gr.Image(label="Composite Image", height=FIXED_HEIGHT, width=FIXED_WIDTH, container=True)
 
         with gr.Row(elem_classes=["block"]):
-            run_button = gr.Button("Run", elem_classes=["gr-button"])
-            next_button = gr.Button("Next image", elem_classes=["gr-button"])
-            reset_source_button = gr.Button("Reset Source", elem_classes=["gr-button"])
-            reset_composite_button = gr.Button("Reset Composite", elem_classes=["gr-button"])
+            run_button = gr.Button("Run 🏃‍♂️", elem_classes=["gr-button"])
+            clean_all_canvas_button = gr.Button("Clean 🧹", elem_classes=["gr-button"])
+            use_default_button = gr.Button("Use Default 🔄", elem_classes=["gr-button"])
 
-        run_button.click(run, inputs=[composite_canvas, source_canvas],
-                         outputs=[composite_canvas, label_map_canvas, source_canvas])
-        next_button.click(next_image, outputs=source_canvas)
-        reset_source_button.click(reset_source, outputs=source_canvas)
-        reset_composite_button.click(reset_composite, outputs=composite_canvas)
+        run_button.click(run_single, inputs=[source_canvas_0, source_canvas_1],
+                         outputs=[composite_canvas, label_map_canvas])
+        use_default_button.click(use_default, outputs=[source_canvas_0, source_canvas_1, composite_canvas, label_map_canvas])
+        clean_all_canvas_button.click(clean_all_canvas, outputs=[source_canvas_0, source_canvas_1, composite_canvas, label_map_canvas])
 
+    # -----------------------------------------------------------------------------------------------
     gr.Markdown("---", elem_classes=["block"])  # 添加分隔线
 
     with gr.Group():
         gr.Markdown("## 多张图片(施工)", elem_classes=["block"], elem_id="header2")
         with gr.Row(elem_classes=["block"]):
-            composite_canvas = gr.Image(label="Composite Image", tool="sketch", height=FIXED_HEIGHT, width=FIXED_WIDTH,
-                                        container=True)
-            source_canvas = gr.Image(label="Source Image", tool="sketch", height=FIXED_HEIGHT, width=FIXED_WIDTH,
+            source_canvas_0 = gr.Image(label="Source Image", tool="sketch", height=FIXED_HEIGHT, width=FIXED_WIDTH,
+                                     container=True)
+            source_canvas_1 = gr.Image(label="Source Image", tool="sketch", height=FIXED_HEIGHT, width=FIXED_WIDTH,
                                      container=True)
             label_map_canvas = gr.Image(label="Label Map", height=FIXED_HEIGHT, width=FIXED_WIDTH, container=True)
+            composite_canvas = gr.Image(label="Composite Image", height=FIXED_HEIGHT, width=FIXED_WIDTH, container=True)
 
         with gr.Row(elem_classes=["block"]):
-            run_button = gr.Button("Run", elem_classes=["gr-button"])
+            run_button = gr.Button("Run 🏃‍", elem_classes=["gr-button"])
             next_button = gr.Button("Next image", elem_classes=["gr-button"])
             reset_source_button = gr.Button("Reset Source", elem_classes=["gr-button"])
             reset_composite_button = gr.Button("Reset Composite", elem_classes=["gr-button"])
 
-        run_button.click(run, inputs=[composite_canvas, source_canvas],
-                         outputs=[composite_canvas, label_map_canvas, source_canvas])
-        next_button.click(next_image, outputs=source_canvas)
-        reset_source_button.click(reset_source, outputs=source_canvas)
-        reset_composite_button.click(reset_composite, outputs=composite_canvas)
+        run_button.click(run, inputs=[source_canvas_0, source_canvas_1],
+                         outputs=[composite_canvas, label_map_canvas])
+        next_button.click(next_image, outputs=source_canvas_1)
+        reset_source_button.click(reset_source, outputs=source_canvas_1)
+        reset_composite_button.click(reset_composite, outputs=source_canvas_0)
+
 demo.launch()
