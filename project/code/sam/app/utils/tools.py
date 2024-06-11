@@ -394,13 +394,16 @@ def point_prompt(masks, points, point_label, target_height, target_width):  # nu
     onemask = np.zeros((h, w))
     for i, annotation in enumerate(masks):
         if type(annotation) == dict:
-            mask = annotation["segmentation"]
+            mask = annotation["segmentation"]  # √
         else:
             mask = annotation
         for i, point in enumerate(points):
-            if mask[point[0], point[1]] == 1 and point_label[i] == 1:
-                onemask += mask
-            if mask[point[0], point[1]] == 1 and point_label[i] == 0:
-                onemask -= mask
+            if 0 <= point[0] < h and 0 <= point[1] < w:
+                if mask[point[0], point[1]] == 1 and point_label[i] == 1:
+                    onemask += mask
+                if mask[point[0], point[1]] == 1 and point_label[i] == 0:
+                    onemask -= mask
+            else:
+                print(f"Point {point} is out of bounds for mask of shape {mask.shape}")
     onemask = onemask >= 1
     return onemask, 0

@@ -7,6 +7,10 @@ from montage.utils import center_crop, filter_img_path, init_color, init_default
 from montage.montage import alpha_beta_swap, create_composite
 from termcolor import cprint
 from tqdm import tqdm
+from sam.app.sam_utils import segment_with_points, get_points_with_draw, segment_everything
+import os
+
+os.environ["PYTHONPATH"] = './'
 
 with open('config.yaml', 'r') as f:
     config = yaml.safe_load(f)
@@ -42,10 +46,12 @@ def use_default_multi():
 def run_multi(source_input_1, source_input_2, source_input_3, source_input_4):
     source_inputs = [source_input_1, source_input_2, source_input_3, source_input_4]
 
+    # mask: (h, w)
     source_mask_list = [process_mask(s, fixed_width=FIXED_WIDTH, fixed_height=FIXED_HEIGHT)[:, :, 0] for s in source_inputs]
     label_map = np.zeros((FIXED_HEIGHT, FIXED_WIDTH), dtype=np.int64)
     composite_image = None
     label_map_image = None
+    # todo: 这个似乎是最后几笔要覆盖之前得
     for idx in tqdm(range(len(source_inputs)-1)): # 从0开始
         if composite_image is None:
             composite_image = source_inputs[0]['image']
@@ -76,7 +82,26 @@ def run_single(source_input_0, source_input_1):
 
     return composite_image, label_map_image
 
-with gr.Blocks(css=".block {padding: 10px;} .gr-button {margin: 5px;}") as demo:
+cond_img_p = gr.Image(label="Input with points", shape=(FIXED_WIDTH, FIXED_HEIGHT), value=examples[0][0], type="pil")
+segm_img_p = gr.Image(label="Segmented Image with points", shape=(FIXED_WIDTH, FIXED_HEIGHT), interactive=False, type="pil")
+
+description_p = """ # Instructions for point mode
+
+                0. Restart by click the Restart button
+                1. Select a point with Add Mask for the foreground (Must)
+                2. Select a point with Remove Area for the background (Optional)
+                3. Click the Start Segmenting.
+"""
+examples += [
+    ["./sam/app/assets/picture3.jpg"],
+    ["./sam/app/assets/picture4.jpg"],
+    ["./sam/app/assets/picture5.jpg"],
+    ["./sam/app/assets/picture6.jpg"],
+    ["./sam/app/assets/picture1.jpg"],
+    ["./sam/app/assets/picture2.jpg"],
+]
+
+with gr.Blocks(css=".block {padding: 10px;} .gr-button {margin: 5px;}", title="Interactive Digital Montage") as demo:
     with gr.Row():
         with gr.Column(scale=1):
             gr.Markdown(title)
@@ -107,7 +132,7 @@ with gr.Blocks(css=".block {padding: 10px;} .gr-button {margin: 5px;}") as demo:
             use_default_button.click(use_default, outputs=[source_canvas_0, source_canvas_1, composite_canvas, label_map_canvas])
             clean_all_canvas_button.click(clean_all_canvas, outputs=[source_canvas_0, source_canvas_1, composite_canvas, label_map_canvas])
 
-        with gr.TabItem("bonus 多图像笔刷(施工)"):  # todo: 这边好像涂抹有点问题
+        with gr.TabItem("bonus 多图像笔刷(施工)"):
             gr.Markdown("#### 指导")
             gr.Markdown("1. 点击 <Use Default 🔄> 或者自己上传图片")
             gr.Markdown("2. 在图片上分别涂抹mask")
@@ -152,5 +177,39 @@ with gr.Blocks(css=".block {padding: 10px;} .gr-button {margin: 5px;}") as demo:
             gr.Markdown("2. ")
             gr.Markdown("3. 点击 <Run 🏃‍> 进行图像蒙太奇")
             gr.Markdown("4. 点击 <Clean 🧹> 就会清空重来")
+            with gr.Tab("Point mode"):
+                # Images
+                with gr.Row(variant="panel"):
+                    with gr.Column(scale=1):
+                        cond_img_p.render()
+
+                    with gr.Column(scale=1):
+                        segm_img_p.render()
+
+                # Submit & Clear
+                with gr.Row():
+                    with gr.Column():
+                        with gr.Row():
+                            with gr.Column():
+                                gr.Markdown("Try some of the examples below ⬇️")
+                                gr.Examples(
+                                    examples=examples,
+                                    inputs=[cond_img_p],
+                                    examples_per_page=5,
+                                )
+
+                    with gr.Column():
+                        segment_btn_p = gr.Button("Cut out objects", variant="primary")
+                        segment_any_p = gr.Button("Segmenting anything!", variant="primary")
+                        clear_btn_p = gr.Button("Restart", variant="secondary")
+
+            cond_img_p.select(get_points_with_draw, [cond_img_p], cond_img_p)
+            segment_any_p.click(segment_everything, inputs=[cond_img_p], outputs=[segm_img_p, cond_img_p]) # todo: 原图不输入，改一下
+            segment_btn_p.click(segment_with_points, inputs=[cond_img_p], outputs=[segm_img_p, cond_img_p])
+
+            def clear():
+                return None, None
+
+            clear_btn_p.click(clear, outputs=[cond_img_p, segm_img_p])
 
 demo.launch()
