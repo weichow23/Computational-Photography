@@ -321,6 +321,8 @@ gradio版本4.9.0和PyQT都会导致某些功能无法显示（哎，python的GU
 
 ==这部分要重写，然后分析下代码==
 
+我实现的配色也仿照了原论文的配色😜
+
 ## 四、效果演示
 
 在与助教沟通确认后，我使用了python完成了所有程序的实现，下列演示程序效果。
@@ -364,15 +366,89 @@ if __name__ == '__main__':
 
 这里我将展示我实现的交互式蒙太奇算法的正确性和展示我实现的bonus效果，具体来说我实现了bonus:
 
+
+
+todo:  多图的mask注意一下
+
+单笔的 把mask的返回接口注意一下，然后蒙太奇的p下图算了(用那个笔刷做一下)
+
+
+
+config虽然换成400，300也没问题，但是还是不搞了
+
+
+
 <font color='red'>1. 使用鼠标进行交互，实现简单的画刷</font>
 
 <font color='red'>2. 能够通过图像号码选择需要交互的图像</font>
 
-<font color='red'>3. 实现单一图像笔刷功能。使用单个图像笔刷，用户希望只向当前合成中添加一个图像，并且该图像应该是既满足笔划下的目标又尽可能无缝地与现有合成匹配的最佳图像。为了向用户提供对最佳图像选择的控制，在绘制之后立即向用户显示第三个窗口，称为选择窗口</font> ==这个3我好像没实现==
+修改config，然后按照config下的文件数量进行展示
+
+<font color='red'>3. 实现单一图像笔刷功能。使用单个图像笔刷，用户希望只向当前合成中添加一个图像，并且该图像应该是既满足笔划下的目标又尽可能无缝地与现有合成匹配的最佳图像。为了向用户提供对最佳图像选择的控制，在绘制之后立即向用户显示第三个窗口，称为选择窗口</font> ==这个3我好像没实现== 这个直接改为用SAM吧，多个按钮调用SAM直接处理下。然后用画笔选中的区域的东西直接切出来
 
 ### 3.3 多图蒙太奇
 
-<font color='red'>4. 实现多图像笔刷的功能。多图像笔刷主要针对一个图像不包含所有需要的效果情况下的情景</font>
+这里实现的以下bonus:
+
+> 实现多图像笔刷的功能。多图像笔刷主要针对一个图像不包含所有需要的效果情况下的情景（最多2分）
+
+大致的流程为两两之间实现蒙太奇，然后动态得更新标签图，并且累计`mask`区域, 主要的函数如下:
+
+```python
+def run_multi(source_input_1, source_input_2, source_input_3, source_input_4):
+    source_inputs = [source_input_1, source_input_2, source_input_3, source_input_4]
+
+    # mask: (h, w)
+    source_mask_list = [process_mask(s, fixed_width=FIXED_WIDTH, fixed_height=FIXED_HEIGHT)[:, :, 0] for s in source_inputs]
+    label_map = np.zeros((FIXED_HEIGHT, FIXED_WIDTH), dtype=np.int64)
+    composite_image = None
+    label_map_image = None
+    histrory_mask = None
+    for idx in tqdm(range(len(source_inputs)-1)): # 从0开始
+        if composite_image is None:
+            composite_image = source_inputs[0]['image']
+        if histrory_mask is None:
+            assert idx == 0
+            histrory_mask = source_mask_list[idx]
+        else:
+            histrory_mask = np.logical_or(histrory_mask, source_mask_list[idx])
+            histrory_mask = np.logical_and(histrory_mask, np.logical_not(source_mask_list[idx + 1]))
+        binary_map = alpha_beta_swap(composite=np.array(composite_image),
+                                     source=np.array(np.array(source_inputs[idx+1]['image'])),
+                                     composite_mask=histrory_mask, source_mask=source_mask_list[idx+1])
+        label_map = update_label_map(label_map, binary_map, idx+1)
+        label_map_image = show_label_map(label_map)
+        composite_image = create_composite(binary_map=binary_map, source=np.array(source_inputs[idx+1]['image']),
+                                       target=np.array(composite_image))
+        # 保存之间的过程图
+        composite_image.save(f"test/multi/image_{idx}.jpg")
+        label_map_image.save(f"test/multi/label_{idx}.jpg")
+    return composite_image, label_map_image
+```
+
+大致效果如下
+
+其仔细观察，我的画笔所落的位置，可以发现我要求涂抹的区域在下列例子中都有所体现
+
+case1：
+
+![](fig/case1.png)
+
+case2：
+
+![](fig/case2.png)
+
+##### 遇到的bug分析
+
+需要额外注意的是 `histrory_mask`需要一个与当前`mask`的非的与的过程
+
+```python
+histrory_mask = np.logical_or(histrory_mask, source_mask_list[idx])
+```
+
+否则会出现以下问题，可以发现橙色的区域一直被占据了
+
+![](fig/case3.png)
 
 ## 五、参考文献
 
@@ -388,19 +464,10 @@ if __name__ == '__main__':
 
 [6] Di Martino J M, Facciolo G, Meinhardt-Llopis E. Poisson image editing[J]. Image Processing On Line, 2016, 6: 300-325.
 
+# 交作业
 
+源代码和项目报告提交截止时间：暂定为 2024年6月16日23:59， 如有变化另行通知。
 
-# todo:
+提交方式：报告和源代码打包提交至学在浙大。
 
-1. 支持格式png
-2. `posion.py`是第三部分拼接，主文件中是算法。对照着先把报告写完
-3. 把交互界面改一下，可以尝试Gradio或者用QT，反正改一改。
-   1. 单图的界面改为4张图片（两个输入两个输出），按钮变小
-   2. 单图的写死两种颜色，去掉next变成usedefault。然后加一个多图的，可以点+增加图片，然后可以反复蒙太奇
-   3. 这些都实现之后就把代码清理一下，使得main中代码更少一些
-4. 把最后一项bonus做一下
-
-大程项目已经布置：http://www.cad.zju.edu.cn/home/gfzhang/course/computational-photography/projects.html，
-
-源代码和项目报告提交截止时间：暂定为 2024年6月16日23:59
-
+命名方式：final-项目名-学号-姓名.zip

@@ -51,5 +51,5 @@ def clean_all_canvas():
 def clean_all_canvas_multi():
     return None, None, None, None, None, None
 
-title = "<center><strong><font size='8'>Interactive digital montage<font></strong></center>"
+title = "<center><strong><font size='8'>Interactive Digital Montage<font></strong></center>"
 description = "<center><font size='4'>ZJU  3210103790<font></center>"

@@ -54,7 +54,7 @@ def segment_everything(
         use_retina=use_retina,
         withContours=withContours,
     )
-    return fig, image
+    return fig
 
 
 def segment_with_points(

@@ -51,19 +51,26 @@ def run_multi(source_input_1, source_input_2, source_input_3, source_input_4):
     label_map = np.zeros((FIXED_HEIGHT, FIXED_WIDTH), dtype=np.int64)
     composite_image = None
     label_map_image = None
-    # todo: 这个似乎是最后几笔要覆盖之前得
+    histrory_mask = None
     for idx in tqdm(range(len(source_inputs)-1)): # 从0开始
         if composite_image is None:
             composite_image = source_inputs[0]['image']
+        if histrory_mask is None:
+            assert idx == 0
+            histrory_mask = source_mask_list[idx]
+        else:
+            histrory_mask = np.logical_or(histrory_mask, source_mask_list[idx])
+            histrory_mask = np.logical_and(histrory_mask, np.logical_not(source_mask_list[idx + 1]))
         binary_map = alpha_beta_swap(composite=np.array(composite_image),
                                      source=np.array(np.array(source_inputs[idx+1]['image'])),
-                                     composite_mask=source_mask_list[idx], source_mask=source_mask_list[idx+1])
+                                     composite_mask=histrory_mask, source_mask=source_mask_list[idx+1])
         label_map = update_label_map(label_map, binary_map, idx+1)
         label_map_image = show_label_map(label_map)
         composite_image = create_composite(binary_map=binary_map, source=np.array(source_inputs[idx+1]['image']),
-                                       target=np.array(composite_image)) # todo:这里检查下source， tar对不对
-        composite_image.save(f"image_{idx}.jpg")
-        label_map_image.save(f"label_{idx}.jpg")
+                                       target=np.array(composite_image))
+        # 保存之间的过程图
+        composite_image.save(f"test/multi/image_{idx}.jpg")
+        label_map_image.save(f"test/multi/label_{idx}.jpg")
     return composite_image, label_map_image
 
 def run_single(source_input_0, source_input_1):
@@ -83,7 +90,7 @@ def run_single(source_input_0, source_input_1):
     return composite_image, label_map_image
 
 cond_img_p = gr.Image(label="Input with points", shape=(FIXED_WIDTH, FIXED_HEIGHT), value=examples[0][0], type="pil")
-segm_img_p = gr.Image(label="Segmented Image with points", shape=(FIXED_WIDTH, FIXED_HEIGHT), interactive=False, type="pil")
+segm_img_p = gr.Image(label="Segmented Image with points", shape=(FIXED_WIDTH, FIXED_HEIGHT), interactive=False)
 
 description_p = """ # Instructions for point mode
 
@@ -154,7 +161,7 @@ with gr.Blocks(css=".block {padding: 10px;} .gr-button {margin: 5px;}", title="I
                                          container=True, brush_color=COLORS[3])
 
             with gr.Row(elem_classes=["block"]):
-                label_map_canvas = gr.Image(label="Label Map", shape=(FIXED_WIDTH, FIXED_HEIGHT), container=True)
+                label_map_canvas_multi = gr.Image(label="Label Map", shape=(FIXED_WIDTH, FIXED_HEIGHT), container=True)
                 composite_canvas_multi = gr.Image(label="Composite Image", shape=(FIXED_WIDTH, FIXED_HEIGHT), container=True)
 
             with gr.Row(elem_classes=["block"]):
@@ -164,13 +171,13 @@ with gr.Blocks(css=".block {padding: 10px;} .gr-button {margin: 5px;}", title="I
 
             run_button_multi.click(run_multi,
                   inputs=[source_canvas_multi1, source_canvas_multi2, source_canvas_multi3, source_canvas_multi4],
-                  outputs=[composite_canvas_multi, label_map_canvas])
+                  outputs=[composite_canvas_multi, label_map_canvas_multi])
             use_default_button_multi.click(use_default_multi,
                                 outputs=[source_canvas_multi1, source_canvas_multi2, source_canvas_multi3,
-                                          source_canvas_multi4, composite_canvas, label_map_canvas])
+                                          source_canvas_multi4, composite_canvas, label_map_canvas_multi])
             clean_all_canvas_button_multi.click(clean_all_canvas_multi,
                                 outputs=[source_canvas_multi1, source_canvas_multi2, source_canvas_multi3,
-                                          source_canvas_multi4, composite_canvas, label_map_canvas])
+                                          source_canvas_multi4, composite_canvas, label_map_canvas_multi])
         with gr.TabItem("bonus 单一图像笔刷(施工)"):
             gr.Markdown("#### 指导")
             gr.Markdown("1. 点击 <Use Default 🔄> 或者自己上传图片")
@@ -181,10 +188,18 @@ with gr.Blocks(css=".block {padding: 10px;} .gr-button {margin: 5px;}", title="I
                 # Images
                 with gr.Row(variant="panel"):
                     with gr.Column(scale=1):
+                        source_canvas_p = gr.Image(label="Source Image", shape=(FIXED_WIDTH, FIXED_HEIGHT),
+                                               value=SOURCE_PIL_IMGS[0])
+                    with gr.Column(scale=1):
                         cond_img_p.render()
-
                     with gr.Column(scale=1):
                         segm_img_p.render()
+
+                with gr.Row(variant="panel"):
+
+                    label_map_canvas_p = gr.Image(label="Label Map", shape=(FIXED_WIDTH, FIXED_HEIGHT), container=True)
+                    composite_canvas_p = gr.Image(label="Composite Image", shape=(FIXED_WIDTH, FIXED_HEIGHT),
+                                                  container=True)
 
                 # Submit & Clear
                 with gr.Row():
@@ -201,11 +216,15 @@ with gr.Blocks(css=".block {padding: 10px;} .gr-button {margin: 5px;}", title="I
                     with gr.Column():
                         segment_btn_p = gr.Button("Cut out objects", variant="primary")
                         segment_any_p = gr.Button("Segmenting anything!", variant="primary")
-                        clear_btn_p = gr.Button("Restart", variant="secondary")
+                        clear_btn_p = gr.Button("Restart SAM 🔄", variant="primary")
+                        run_button_p = gr.Button("Run 🏃‍", variant="secondary")
 
             cond_img_p.select(get_points_with_draw, [cond_img_p], cond_img_p)
-            segment_any_p.click(segment_everything, inputs=[cond_img_p], outputs=[segm_img_p, cond_img_p]) # todo: 原图不输入，改一下
+            segment_any_p.click(segment_everything, inputs=[cond_img_p], outputs=[segm_img_p])
             segment_btn_p.click(segment_with_points, inputs=[cond_img_p], outputs=[segm_img_p, cond_img_p])
+            # todo: 把run函数接过来，然后mask是load的，并且展示label
+            # run_button_p.click(run_single_p, inputs=[source_canvas_0, source_canvas_1],
+            #                  outputs=[composite_canvas, label_map_canvas])
 
             def clear():
                 return None, None
