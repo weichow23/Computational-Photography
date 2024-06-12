@@ -404,6 +404,6 @@ def point_prompt(masks, points, point_label, target_height, target_width):  # nu
                 if mask[point[0], point[1]] == 1 and point_label[i] == 0:
                     onemask -= mask
             else:
-                print(f"Point {point} is out of bounds for mask of shape {mask.shape}")
+                print(f"Warning: Point {point} is out of bounds for mask of shape {mask.shape}")
     onemask = onemask >= 1
     return onemask, 0

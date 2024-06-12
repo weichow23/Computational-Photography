@@ -18,7 +18,7 @@ with open('config.yaml', 'r') as f:
 FIXED_WIDTH = config["fixed_width"]
 FIXED_HEIGHT = config["fixed_height"]
 
-SOURCE_PIL_IMGS, examples = init_default_source(source_img_dir=config['source_img_dir'],
+SOURCE_PIL_IMGS, examples_o = init_default_source(source_img_dir=config['source_img_dir'],
                                       fixed_width=FIXED_WIDTH, fixed_height=FIXED_HEIGHT)
 hex2rgb = lambda x: tuple(int(x[i:i + 2], 16) for i in (1, 3, 5))
 COLORS = init_color()
@@ -89,24 +89,33 @@ def run_single(source_input_0, source_input_1):
 
     return composite_image, label_map_image
 
+def run_single_p(source_input, cond_input):
+    '''
+    source_input: np.array, cond_input: PIL.Image
+    '''
+    source_mask = np.load('test/tmp/annotations.npy')
+    composite_mask = np.logical_not(source_mask)
+    cond_input = Image.open("test/tmp/annotations.png")
+    binary_map = alpha_beta_swap(source_input, np.array(cond_input), composite_mask, source_mask)
+    label_map = np.zeros((FIXED_HEIGHT, FIXED_WIDTH), dtype=np.int64)
+    label_map = update_label_map(label_map, binary_map, 1)
+    label_map_image = show_label_map(label_map)
+    composite_image = create_composite(binary_map=binary_map, source=np.array(cond_input), target=source_input)
+
+    return composite_image, label_map_image
+
+examples = [
+    ["./sam/assets/picture3.jpg"],
+    ["./sam/assets/picture4.jpg"],
+    ["./sam/assets/picture5.jpg"],
+    ["./sam/assets/picture6.jpg"],
+    ["./sam/assets/picture1.jpg"],
+    ["./sam/assets/picture2.jpg"],
+    ["./sam/assets/xiaohuangren.png"]
+] + examples_o
 cond_img_p = gr.Image(label="Input with points", shape=(FIXED_WIDTH, FIXED_HEIGHT), value=examples[0][0], type="pil")
 segm_img_p = gr.Image(label="Segmented Image with points", shape=(FIXED_WIDTH, FIXED_HEIGHT), interactive=False)
 
-description_p = """ # Instructions for point mode
-
-                0. Restart by click the Restart button
-                1. Select a point with Add Mask for the foreground (Must)
-                2. Select a point with Remove Area for the background (Optional)
-                3. Click the Start Segmenting.
-"""
-examples += [
-    ["./sam/app/assets/picture3.jpg"],
-    ["./sam/app/assets/picture4.jpg"],
-    ["./sam/app/assets/picture5.jpg"],
-    ["./sam/app/assets/picture6.jpg"],
-    ["./sam/app/assets/picture1.jpg"],
-    ["./sam/app/assets/picture2.jpg"],
-]
 
 with gr.Blocks(css=".block {padding: 10px;} .gr-button {margin: 5px;}", title="Interactive Digital Montage") as demo:
     with gr.Row():
@@ -139,7 +148,7 @@ with gr.Blocks(css=".block {padding: 10px;} .gr-button {margin: 5px;}", title="I
             use_default_button.click(use_default, outputs=[source_canvas_0, source_canvas_1, composite_canvas, label_map_canvas])
             clean_all_canvas_button.click(clean_all_canvas, outputs=[source_canvas_0, source_canvas_1, composite_canvas, label_map_canvas])
 
-        with gr.TabItem("bonus 多图像笔刷(施工)"):
+        with gr.TabItem("bonus 多图像笔刷"):
             gr.Markdown("#### 指导")
             gr.Markdown("1. 点击 <Use Default 🔄> 或者自己上传图片")
             gr.Markdown("2. 在图片上分别涂抹mask")
@@ -178,12 +187,13 @@ with gr.Blocks(css=".block {padding: 10px;} .gr-button {margin: 5px;}", title="I
             clean_all_canvas_button_multi.click(clean_all_canvas_multi,
                                 outputs=[source_canvas_multi1, source_canvas_multi2, source_canvas_multi3,
                                           source_canvas_multi4, composite_canvas, label_map_canvas_multi])
-        with gr.TabItem("bonus 单一图像笔刷(施工)"):
+        with gr.TabItem("bonus 单一图像笔刷"):
             gr.Markdown("#### 指导")
-            gr.Markdown("1. 点击 <Use Default 🔄> 或者自己上传图片")
-            gr.Markdown("2. ")
-            gr.Markdown("3. 点击 <Run 🏃‍> 进行图像蒙太奇")
-            gr.Markdown("4. 点击 <Clean 🧹> 就会清空重来")
+            gr.Markdown("1. 在examples中选择或者自己上传图片")
+            gr.Markdown("2. 在Input with points上标记")
+            gr.Markdown("3. 点击 <Cut out objects ✂️>, 一定要确保annotations产生")
+            gr.Markdown("4. 点击 <Run 🏃‍> 进行图像蒙太奇")
+            gr.Markdown("注意，重新SAM的时候，需要点击 <Restart SAM 🔄> ; 你想测试Mobile SAM在seg everything上的能力，请点击 <Segmenting anything! 💥>")
             with gr.Tab("Point mode"):
                 # Images
                 with gr.Row(variant="panel"):
@@ -214,17 +224,16 @@ with gr.Blocks(css=".block {padding: 10px;} .gr-button {margin: 5px;}", title="I
                                 )
 
                     with gr.Column():
-                        segment_btn_p = gr.Button("Cut out objects", variant="primary")
-                        segment_any_p = gr.Button("Segmenting anything!", variant="primary")
+                        segment_btn_p = gr.Button("Cut out objects ✂️", variant="primary")
+                        segment_any_p = gr.Button("Segmenting anything! 💥", variant="primary")
                         clear_btn_p = gr.Button("Restart SAM 🔄", variant="primary")
                         run_button_p = gr.Button("Run 🏃‍", variant="secondary")
 
             cond_img_p.select(get_points_with_draw, [cond_img_p], cond_img_p)
             segment_any_p.click(segment_everything, inputs=[cond_img_p], outputs=[segm_img_p])
             segment_btn_p.click(segment_with_points, inputs=[cond_img_p], outputs=[segm_img_p, cond_img_p])
-            # todo: 把run函数接过来，然后mask是load的，并且展示label
-            # run_button_p.click(run_single_p, inputs=[source_canvas_0, source_canvas_1],
-            #                  outputs=[composite_canvas, label_map_canvas])
+            run_button_p.click(run_single_p, inputs=[source_canvas_p, cond_img_p],
+                             outputs=[composite_canvas_p, label_map_canvas_p])
 
             def clear():
                 return None, None

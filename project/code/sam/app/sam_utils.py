@@ -2,7 +2,7 @@ import gradio as gr
 import numpy as np
 import torch
 from sam.mobile_sam import SamAutomaticMaskGenerator, SamPredictor, sam_model_registry
-from PIL import ImageDraw
+from PIL import ImageDraw, Image
 from sam.app.utils.tools import format_results, point_prompt
 from sam.app.utils.tools_gradio import fast_process
 
@@ -84,6 +84,8 @@ def segment_with_points(
     if scaled_points.size == 0 and scaled_point_label.size == 0:
         print("No points selected")
         return image, image
+    # 这里已经有points了
+
     nd_image = np.array(image) # [h, w, 3]
     predictor.set_image(nd_image)
     masks, scores, logits = predictor.predict(
@@ -112,14 +114,17 @@ def segment_with_points(
     global_points = []
     global_point_label = []
 
-    np.save('annotations.npy', annotations.squeeze(0)) # (h, w)
-    # loaded_annotations = np.load('annotations.npy')
+    np.save('test/tmp/annotations.npy', annotations.squeeze(0)) # (h, w)
     return fig, image
 
 
 def get_points_with_draw(image, evt: gr.SelectData):
     global global_points
     global global_point_label
+
+    # 去掉黄点
+    if global_point_label == []:
+        image.save(f"test/tmp/annotations.png")
 
     x, y = evt.index[0], evt.index[1]
     point_radius, point_color = 15, (255, 255, 0)

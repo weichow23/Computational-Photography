@@ -28,7 +28,7 @@
 
 整个算法的流程大致如下图所示：
 
-<img src="fig/02.png" style="zoom:45%;" />
+<img src="fig/02.png" style="zoom:39%;" />
 
 最初，第一张源图像被用作当前的合成图像，并进行标记（标记显示在合成图像下方）。初始时，标记在整个图像上保持恒定，因为合成图像的所有像素都来自同一张源图像。然后，用户通过使用单图像画笔以不同的图像目标进行迭代绘画，修改当前的合成图像和标记。最后，应用梯度域融合以消除任何剩余可见的接缝。
 
@@ -100,7 +100,7 @@ $$
 
 课程项目介绍的页面中，助教推荐了使用[gco-v3.0库](http://vision.csd.uwo.ca/code/gco-v3.0.zip), 但是我当时这个库死活和本地的环境冲突，我最后采用了python来进行实现，我没有找到gco的python版本，最后选择采用了ICCC2005中的论文[Efficiently Solving Dynamic Markov Random Fields Using Graph Cuts.](https://ieeexplore.ieee.org/abstract/document/1544820/)的方法进行求解MRF问题, 具体来说该方法已经实现在了python的`maxflow`库中。
 
-在图割阶段，我们使用了"指定图像"数据惩罚和"颜色"交互惩罚。并且，我使用了alpha-beta交换代替了原有论文中提到的alpha扩展。具体实现在`mantage.py`文件中的`alpha_beta_swap`函数，具体的解析如下。
+在图割阶段，我们使用了"指定图像"数据惩罚和"颜色"交互惩罚。并且，我使用了alpha-beta交换代替了原有论文中提到的alpha扩展 [7]。具体实现在`mantage.py`文件中的`alpha_beta_swap`函数，具体的解析如下。
 
 函数首先获取composite图像的高度（h）和宽度（w），并初始化一个最大流图（graph），用于存储节点和边。图的节点数量为h * w，边的数量为2 * ((h - 1) * w + (w - 1) * h)，这样确保有足够的空间来存储节点和边。我们随后在该图中引入数据项和平滑项约束。
 
@@ -315,15 +315,7 @@ def laplacian_matrix(n, m):
 
 通过这种方式，我们实现了基于泊松方程的图像融合，减少了图像连接处的瑕疵，得到了更平滑的合成效果。
 
-## 三、GUI实现
-
-gradio版本4.9.0和PyQT都会导致某些功能无法显示（哎，python的GUI还是没有直接写html的功能丰富😂）
-
-==这部分要重写，然后分析下代码==
-
-我实现的配色也仿照了原论文的配色😜
-
-## 四、效果演示
+## 三、效果演示
 
 在与助教沟通确认后，我使用了python完成了所有程序的实现，下列演示程序效果。
 
@@ -366,31 +358,25 @@ if __name__ == '__main__':
 
 这里我将展示我实现的交互式蒙太奇算法的正确性和展示我实现的bonus效果，具体来说我实现了bonus:
 
+> 使用鼠标进行交互，实现简单的画刷
 
+<img src="fig/brush.png"/>
 
-todo:  多图的mask注意一下
+> 能够通过图像号码选择需要交互的图像
 
-单笔的 把mask的返回接口注意一下，然后蒙太奇的p下图算了(用那个笔刷做一下)
+我这里直接更进一步实现了打开文件然后上传（具体的动画录屏可见于ppt）
 
+<img src="fig/upload.png"/>
 
+最终单图融合的蒙太奇的一个示例效果如下：
 
-config虽然换成400，300也没问题，但是还是不搞了
-
-
-
-<font color='red'>1. 使用鼠标进行交互，实现简单的画刷</font>
-
-<font color='red'>2. 能够通过图像号码选择需要交互的图像</font>
-
-修改config，然后按照config下的文件数量进行展示
-
-<font color='red'>3. 实现单一图像笔刷功能。使用单个图像笔刷，用户希望只向当前合成中添加一个图像，并且该图像应该是既满足笔划下的目标又尽可能无缝地与现有合成匹配的最佳图像。为了向用户提供对最佳图像选择的控制，在绘制之后立即向用户显示第三个窗口，称为选择窗口</font> ==这个3我好像没实现== 这个直接改为用SAM吧，多个按钮调用SAM直接处理下。然后用画笔选中的区域的东西直接切出来
+<img src="fig/single.png"/>
 
 ### 3.3 多图蒙太奇
 
 这里实现的以下bonus:
 
-> 实现多图像笔刷的功能。多图像笔刷主要针对一个图像不包含所有需要的效果情况下的情景（最多2分）
+> 实现多图像笔刷的功能。多图像笔刷主要针对一个图像不包含所有需要的效果情况下的情景
 
 大致的流程为两两之间实现蒙太奇，然后动态得更新标签图，并且累计`mask`区域, 主要的函数如下:
 
@@ -450,6 +436,45 @@ histrory_mask = np.logical_or(histrory_mask, source_mask_list[idx])
 
 ![](fig/case3.png)
 
+### 单笔刷
+
+这里实现的以下bonus:
+
+>  实现单一图像笔刷功能。使用单个图像笔刷，用户希望只向当前合成中添加一个图像，并且该图像应该是既满足笔划下的目标又尽可能无缝地与现有合成匹配的最佳图像。为了向用户提供对最佳图像选择的控制，在绘制之后立即向用户显示第三个窗口，称为选择窗口
+
+具体来说，我使用Segment Anything抠出mask, 为了使得速度更快，使用了SAM的蒸馏版本Mobile SAM
+
+![](fig/sam.png)
+
+以下是我对MobileSAM 的分割效果检验：
+
+![](fig/mobile.png)
+
+但是受限于MoblieSAM的参数量，很容易出现分割失败（失败案例以红色框框出)，清晰度低的更容易失败（比如我们在交互式蒙太奇中的样图为$477*356$，比SAM标准的$1024*1024$小很多
+
+在全例风格方面：Mobile SAM受限于参数量，效果比原始SAM差较多
+
+![](fig/mobile2.png)
+
+因为原始的图片中抠图抽出来较为困难（Mobile SAM的局限性，换成SAM应该就不会有了，但是SAM太慢了CPU跑不起来），我添加了一个明显的小黄人进行
+
+![](fig/mobile3.png)
+
+再比如（具体的视频可以云县程序或者见ppt上的动画）：
+
+![](fig/annotation.png)
+
+需要额外注意的一件事情是，我的实现依赖于annotation的生成，如果SAM没有生成annotation就无法实现蒙太奇
+
+## 四、代码运行
+
+```shell
+# 安装python库，特别注意gradio版本
+bash setup.sh
+# 运行主程序
+python main.py
+```
+
 ## 五、参考文献
 
 [1] Agarwala A, Dontcheva M, Agrawala M, et al. Interactive digital photomontage[M]//ACM SIGGRAPH 2004 Papers. 2004: 294-302.
@@ -464,10 +489,138 @@ histrory_mask = np.logical_or(histrory_mask, source_mask_list[idx])
 
 [6] Di Martino J M, Facciolo G, Meinhardt-Llopis E. Poisson image editing[J]. Image Processing On Line, 2016, 6: 300-325.
 
-# 交作业
+[7] Boykov Y, Veksler O, Zabih R. Fast approximate energy minimization via graph cuts[J]. IEEE Transactions on pattern analysis and machine intelligence, 2001, 23(11): 1222-1239.
 
-源代码和项目报告提交截止时间：暂定为 2024年6月16日23:59， 如有变化另行通知。
+## 附录： GUI实现
 
-提交方式：报告和源代码打包提交至学在浙大。
+gradio版本4.9.0和PyQT都会导致某些功能无法显示（哎，python的GUI还是没有直接写html的功能丰富😂）
 
-命名方式：final-项目名-学号-姓名.zip
+我实现的配色也仿照了原论文的配色😜
+
+```python
+with gr.Blocks(css=".block {padding: 10px;} .gr-button {margin: 5px;}", title="Interactive Digital Montage") as demo:
+    with gr.Row():
+        with gr.Column(scale=1):
+            gr.Markdown(title)
+            gr.Markdown(description)
+
+    with gr.Tabs():
+        with gr.TabItem("两张图片蒙太奇"):
+            gr.Markdown("#### 指导")
+            gr.Markdown("1. 点击 <Use Default 🔄> 或者自己上传图片")
+            gr.Markdown("2. 在两张图片上分别涂抹mask")
+            gr.Markdown("3. 点击 <Run 🏃‍> 进行图像蒙太奇")
+            gr.Markdown("4. 点击 <Clean 🧹> 就会清空重来")
+            with gr.Row(elem_classes=["block"]):
+                source_canvas_0 = gr.Image(label="Source Image 1", tool="sketch", shape=(FIXED_WIDTH, FIXED_HEIGHT),
+                                         container=True, brush_color=COLORS[0])
+                source_canvas_1 = gr.Image(label="Source Image 2", tool="sketch", shape=(FIXED_WIDTH, FIXED_HEIGHT),
+                                         container=True, brush_color=COLORS[1])
+                label_map_canvas = gr.Image(label="Label Map", shape=(FIXED_WIDTH, FIXED_HEIGHT), container=True)
+                composite_canvas = gr.Image(label="Composite Image", shape=(FIXED_WIDTH, FIXED_HEIGHT), container=True)
+
+            with gr.Row(elem_classes=["block"]):
+                run_button = gr.Button("Run 🏃‍♂️", elem_classes=["gr-button"])
+                clean_all_canvas_button = gr.Button("Clean 🧹", elem_classes=["gr-button"])
+                use_default_button = gr.Button("Use Default 🔄", elem_classes=["gr-button"])
+
+            run_button.click(run_single, inputs=[source_canvas_0, source_canvas_1],
+                             outputs=[composite_canvas, label_map_canvas])
+            use_default_button.click(use_default, outputs=[source_canvas_0, source_canvas_1, composite_canvas, label_map_canvas])
+            clean_all_canvas_button.click(clean_all_canvas, outputs=[source_canvas_0, source_canvas_1, composite_canvas, label_map_canvas])
+
+        with gr.TabItem("bonus 多图像笔刷"):
+            gr.Markdown("#### 指导")
+            gr.Markdown("1. 点击 <Use Default 🔄> 或者自己上传图片")
+            gr.Markdown("2. 在图片上分别涂抹mask")
+            gr.Markdown("3. 点击 <Run 🏃‍> 进行图像蒙太奇")
+            gr.Markdown("4. 点击 <Clean 🧹> 就会清空重来")
+            with gr.Row(elem_classes=["block"]):
+                # source_canvases = [
+                #     gr.Image(label=f"Source Image {i + 1}", tool="sketch", shape=(FIXED_WIDTH, FIXED_HEIGHT),
+                #              container=True, brush_color=COLORS[i % len(COLORS)], value=SOURCE_PIL_IMGS[i])
+                #     for i in range(len(SOURCE_PIL_IMGS))]  # 这么写无法修改
+
+                source_canvas_multi1 = gr.Image(label="Source Image 1", tool="sketch", shape=(FIXED_WIDTH, FIXED_HEIGHT),
+                                      container=True, brush_color=COLORS[0])
+                source_canvas_multi2 = gr.Image(label="Source Image 2", tool="sketch", shape=(FIXED_WIDTH, FIXED_HEIGHT),
+                                         container=True, brush_color=COLORS[1])
+                source_canvas_multi3 = gr.Image(label="Source Image 3", tool="sketch", shape=(FIXED_WIDTH, FIXED_HEIGHT),
+                                         container=True, brush_color=COLORS[2])
+                source_canvas_multi4 = gr.Image(label="Source Image 4", tool="sketch", shape=(FIXED_WIDTH, FIXED_HEIGHT),
+                                         container=True, brush_color=COLORS[3])
+
+            with gr.Row(elem_classes=["block"]):
+                label_map_canvas_multi = gr.Image(label="Label Map", shape=(FIXED_WIDTH, FIXED_HEIGHT), container=True)
+                composite_canvas_multi = gr.Image(label="Composite Image", shape=(FIXED_WIDTH, FIXED_HEIGHT), container=True)
+
+            with gr.Row(elem_classes=["block"]):
+                run_button_multi = gr.Button("Run 🏃‍", elem_classes=["gr-button"])
+                clean_all_canvas_button_multi = gr.Button("Clean 🧹", elem_classes=["gr-button"])
+                use_default_button_multi = gr.Button("Use Default 🔄", elem_classes=["gr-button"])
+
+            run_button_multi.click(run_multi,
+                  inputs=[source_canvas_multi1, source_canvas_multi2, source_canvas_multi3, source_canvas_multi4],
+                  outputs=[composite_canvas_multi, label_map_canvas_multi])
+            use_default_button_multi.click(use_default_multi,
+                                outputs=[source_canvas_multi1, source_canvas_multi2, source_canvas_multi3,
+                                          source_canvas_multi4, composite_canvas, label_map_canvas_multi])
+            clean_all_canvas_button_multi.click(clean_all_canvas_multi,
+                                outputs=[source_canvas_multi1, source_canvas_multi2, source_canvas_multi3,
+                                          source_canvas_multi4, composite_canvas, label_map_canvas_multi])
+        with gr.TabItem("bonus 单一图像笔刷"):
+            gr.Markdown("#### 指导")
+            gr.Markdown("1. 在examples中选择或者自己上传图片")
+            gr.Markdown("2. 在Input with points上标记")
+            gr.Markdown("3. 点击 <Cut out objects ✂️>, 一定要确保annotations产生")
+            gr.Markdown("4. 点击 <Run 🏃‍> 进行图像蒙太奇")
+            gr.Markdown("注意，重新SAM的时候，需要点击 <Restart SAM 🔄> ; 你想测试Mobile SAM在seg everything上的能力，请点击 <Segmenting anything! 💥>")
+            with gr.Tab("Point mode"):
+                # Images
+                with gr.Row(variant="panel"):
+                    with gr.Column(scale=1):
+                        source_canvas_p = gr.Image(label="Source Image", shape=(FIXED_WIDTH, FIXED_HEIGHT),
+                                               value=SOURCE_PIL_IMGS[0])
+                    with gr.Column(scale=1):
+                        cond_img_p.render()
+                    with gr.Column(scale=1):
+                        segm_img_p.render()
+
+                with gr.Row(variant="panel"):
+
+                    label_map_canvas_p = gr.Image(label="Label Map", shape=(FIXED_WIDTH, FIXED_HEIGHT), container=True)
+                    composite_canvas_p = gr.Image(label="Composite Image", shape=(FIXED_WIDTH, FIXED_HEIGHT),
+                                                  container=True)
+
+                # Submit & Clear
+                with gr.Row():
+                    with gr.Column():
+                        with gr.Row():
+                            with gr.Column():
+                                gr.Markdown("Try some of the examples below ⬇️")
+                                gr.Examples(
+                                    examples=examples,
+                                    inputs=[cond_img_p],
+                                    examples_per_page=5,
+                                )
+
+                    with gr.Column():
+                        segment_btn_p = gr.Button("Cut out objects ✂️", variant="primary")
+                        segment_any_p = gr.Button("Segmenting anything! 💥", variant="primary")
+                        clear_btn_p = gr.Button("Restart SAM 🔄", variant="primary")
+                        run_button_p = gr.Button("Run 🏃‍", variant="secondary")
+
+            cond_img_p.select(get_points_with_draw, [cond_img_p], cond_img_p)
+            segment_any_p.click(segment_everything, inputs=[cond_img_p], outputs=[segm_img_p])
+            segment_btn_p.click(segment_with_points, inputs=[cond_img_p], outputs=[segm_img_p, cond_img_p])
+            run_button_p.click(run_single_p, inputs=[source_canvas_p, cond_img_p],
+                             outputs=[composite_canvas_p, label_map_canvas_p])
+
+            def clear():
+                return None, None
+
+            clear_btn_p.click(clear, outputs=[cond_img_p, segm_img_p])
+
+demo.launch()
+```
+
