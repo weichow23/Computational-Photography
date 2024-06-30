@@ -17,3 +17,4 @@
 
 # Final Project
 
+![](project/fig/case2.png)
